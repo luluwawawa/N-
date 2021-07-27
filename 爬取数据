@@ -1,0 +1,132 @@
+# codeing=utf-8
+
+
+# # # # # # # # # # 引入模块
+# 1.from (文件夹) import 模块（就是一个py文件）as
+# 2.import 文件夹
+from bs4 import BeautifulSoup  # 网页解析，获取数据  （爬完网页，把网页数据进行差分）
+import re  # 正则表达式，进行文字匹配的  （进行数据提炼）
+import urllib.request, urllib.error  ##指定URL，获取网页数据（给网页，就你能爬）
+import xlwt  # 进行excel操作  （数据保存到excel）
+import sqlite3  # 进行SQLite数据库操作 （数据存到数据库）
+
+
+# # # # # # # # # # 定义主函数
+def main():
+    baseurl = "https://movie.douban.com/top250?star="
+    # # 1.爬取网页  #2.逐一解析数据
+    datalist = getData(baseurl)
+    savepath = "豆瓣电影Top250.xls"  # 保存到当前文件夹
+    # # 3.保存数据
+    saveData(datalist,savepath)
+
+# # # # # # # # # # 创建正则表达式（所有要找的内容的规则）
+#1.每部电影的详情链接
+findlink=re.compile(r'<a href="(.*?)">')   #创建一个正则表达式，就是我们想要的东西的模板（。*？）万能规则
+#2.图片的链接
+findImgsrc = re.compile(r'<img.*src="(.*?)"',re.S)    #re.S 忽略换行符，如果要的内容有换行的话加S
+#3.片名
+findTitle = re.compile(r'<span class="title">(.*)</span>')   #把片名换成(.*)
+#4.评分
+findRating = re.compile(r'<span class="rating_num" property="v:average">(.*)</span>') #评分换成(.*)
+#5.评价人数
+findJudge = re.compile(r'<span>(\d*)人评价</span>')  #(\d*)表示数字
+#6.概况
+findInq = re.compile(r'<span class="inq">(.*)</span>')
+#7.相关内容
+findBd = re.compile(r'<p class>(.*?)</p>',re.S)
+
+
+# # # # # # # # # # 1.爬取网页，2.逐一解析
+def getData(baseurl):
+    datalist = []
+    #1.爬取所有网页源代码
+    for i in range(0,10):        #调用获取页面的函数，10次，每次25条。
+        url=baseurl+str(i*25)    #这个是star=0，25，50，等于0对应第一页，等于25对应第二页网址
+        html=askURL(url)         #保存获取到的每一页网页源码
+        # print(html)
+        #2.逐一解析数据
+        soup = BeautifulSoup(html, "html.parser") # 首先通过bS4来解析获取的html，得到一个网页
+        #print(soup)
+        for item in soup.find_all('div',class_="item"):    # 找到每一个影片项目，形成[]格式
+             # print(item)
+            data = []  # 存一部电影的所有信息
+            item = str(item)  # 转化成字符串
+            # print(item)
+
+            ####每个电影的链接
+            link = re.findall(findlink, item)[0]  # 通过re的正则表达式来找到指定的字符串
+            data.append(link)   #列表添加link
+
+            imgSrc = re.findall(findImgsrc, item)[0]
+            data.append(imgSrc)  #列表添加图片
+
+            titles = re.findall(findTitle, item)  # 片名（有几种）
+            if (len(titles) == 2):      #若有两种title
+                 ctitle = titles[0]      #ctitle中文名
+                 data.append(ctitle)
+                 otitle = titles[1].replace("/", "").replace("\xa0\xa0", "")    #英文名，用replase去掉无关的符号
+                 data.append(otitle)
+            else:
+                 data.append(titles[0])
+                 data.append(' ')    #留空
+
+            rating = re.findall(findRating, item)[0]
+            data.append(rating)   #列表添加打分
+
+            judgeNum = re.findall(findJudge, item)[0]
+            data.append(judgeNum)    #列表添加人数
+
+            inq = re.findall(findInq, item)
+            if len(inq) != 0:    #如果长度不等于0
+                inq = inq[0].replace("。", "")  # 去掉句号
+                data.append(inq)
+            else:
+                data.append(" ")    #若为空不能不管        ##列表添加概述
+
+            # bd = re.findall(findBd, item)[0]
+            # bd = re.sub('<br(\s+)?/>(\s+)?', " ", bd)  #去掉<br/>bd = re.sub('/'," ",bd)
+            # bd = re.sub('/', " ", bd)
+            # data.append(bd)         #列表添加
+
+            datalist.append(data)      #把处理好的一步电影信息放入到datalist
+    #print(datalist)
+    return datalist
+
+# # # # # # # # # # 爬取一个指定的网页源代码，得到指定的一个URL网页内容
+def askURL(url):
+    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36 Edg/91.0.864.71"
+            }  #模拟浏览器头部信息，向豆瓣发送消息，伪装为一个网页去访问
+    req=urllib.request.Request(url=url,headers=headers)  #把请求信息打包，让它以为是真实的网页请求
+    html=""
+    try:
+        response=urllib.request.urlopen(req)
+        html=response.read().decode("utf-8")     #html就是爬取的网页
+        # print(html)    #可以访问
+    except urllib.error.URLError as e:
+        if hasattr(e,"code"):
+            print(e.code)
+        if hasattr(e, "reason"):
+            print(e.reason)
+    return html
+
+
+# # # # # # # # # # 3. 保存数据
+def saveData(datalist,savepath):
+    workbook = xlwt.Workbook(encoding="utf-8")  # 创建workbook对象（相当于一个文件）
+    worksheet = workbook.add_sheet('豆瓣电影Top250')  # 在这个文件里创建一个工作表
+    col=("电子详情链接","图片链接","影片中文名","影片外文名","评分","评价数","概况")
+    for j in range(0,7):
+        worksheet.write(0,j,col[j])  #第一行，填写列名
+    for i in range(0,250):
+        print("第%d条"%(i+1))
+        data=datalist[i]
+        for j in range(0,7):
+            worksheet.write(i+1,j,data[j])  # 填写数据
+    workbook.save(savepath)
+    return
+
+
+# # # # # # # # # # 程序入口
+if __name__ == "__main__":  # 当程序执行时,就是一个程序执行的入口，第一行
+     main()
